@@ -1,0 +1,121 @@
+trait MultiplySparseMatrixDataframe {
+    
+    import org.apache.spark.sql.expressions.Aggregator
+    
+    protected object MatrixMultiply extends Aggregator[(Long, Double, Long, Double), Double, Double] {
+    
+        import org.apache.spark.sql.{Encoder, Encoders}
+        
+        def zero :Double = 0.0 // Init the buffer
+      
+        def reduce(buffer: Double, x: (Long, Double, Long, Double)) :Double = {
+            //System.out.println(s"buffer=$buffer x=$x")
+            if (x._1 == x._3){
+                buffer+x._2*x._4
+            }else{
+                buffer
+            }
+            
+        }
+    
+        def merge(a: Double, b: Double) :Double = {
+            a+b
+        }
+    
+        def finish(r: Double) :Double = r
+      
+        def bufferEncoder: Encoder[Double] = Encoders.scalaDouble
+    
+        def outputEncoder: Encoder[Double] = Encoders.scalaDouble
+        
+    }
+    
+    protected val matrixMultiplyUdaf = udaf(MatrixMultiply)
+    
+    protected def multiplicationCorrectMatrix(
+        M1 :DataFrame,
+        M2 :DataFrame,
+        columnName :(String, String, String, String, String, String)
+    ) :DataFrame = {
+       M1.join(
+            M2,
+            M1(columnName._2) ===  M2(columnName._4)
+        )
+        .groupBy(columnName._1, columnName._5)
+        .agg(
+            matrixMultiplyUdaf(
+                col(columnName._2),
+                col(columnName._3),
+                col(columnName._4),
+                col(columnName._6)
+            )
+        ) 
+    }
+    
+    protected def multiplicationMatrix(
+        M1 :DataFrame,
+        M2 :DataFrame,
+        columnName :(String, String, String, String, String, String)=("row_l", "col_l", "value_l", "row_r", "col_r", "value_r")
+    ) :DataFrame = {
+        multiplicationCorrectMatrix(
+            M1=correctedDF(M1, (columnName._1, columnName._2, columnName._3)),
+            M2=correctedDF(M2, (columnName._4, columnName._5, columnName._6)),
+            columnName=columnName
+        )
+    }
+    
+    protected def correctedDF(df :DataFrame, columnName :(String, String, String)) :DataFrame
+}
+
+trait SparseMatrixDataframeToMatrix {
+    
+    // To Matrix
+    def getBlockMatrix(df :DataFrame) = {
+        import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, MatrixEntry}
+        
+        new CoordinateMatrix(
+            df.rdd.map(
+                m => MatrixEntry(m.getLong(0),m.getLong(1),m.getDouble(2))
+            )
+        ).toBlockMatrix
+    }
+    
+}
+
+case class SparseMatrixDataframe(data: DataFrame) extends
+    MultiplySparseMatrixDataframe with
+    SparseMatrixDataframeToMatrix
+    {
+    
+    // constants
+    // ---
+    // columns name
+    private val colsName = ("row", "col", "value")
+    
+    //Multiply matrix
+    def *(that: SparseMatrixDataframe) :SparseMatrixDataframe = SparseMatrixDataframe(
+        multiplicationMatrix(this.df, that.df)
+    )
+    
+    //to Matrix
+    def toBlockMatrix = getBlockMatrix(df)
+    def toLocalMatrix = this.toBlockMatrix.toLocalMatrix
+    
+    //show
+    def show = df.show
+    
+    // init
+    protected override def correctedDF(df :DataFrame, columnName :(String, String, String)) :DataFrame = {
+        df.select(df.columns.slice(0,3).zipWithIndex.map{ case (column, i) => {
+                i match {
+                    case 0  => col(column).cast("Long").as(columnName._1)
+                    case 1  => col(column).cast("Long").as(columnName._2)
+                    case 2  => col(column).cast("Double").as(columnName._3)
+                    //case _  => col(column)
+                }
+            }}:_*)
+    }
+    
+    val df = correctedDF(data, colsName)
+    
+}
