@@ -1,7 +1,7 @@
 import org.apache.spark.sql.{DataFrame}
 
-trait MultiplySparseMatrixDataframe {
-
+trait MultiplySparseMatrixDataframe{
+    
     import org.apache.spark.sql.expressions.Aggregator
     
     protected object MatrixMultiply extends Aggregator[(Long, Double, Long, Double), Double, Double] {
@@ -34,45 +34,45 @@ trait MultiplySparseMatrixDataframe {
     
     protected val matrixMultiplyUdaf = udaf(MatrixMultiply)
     
-    protected def multiplicationCorrectMatrix(
-        M1 :DataFrame,
-        M2 :DataFrame,
-        columnName :(String, String, String, String, String, String)
+    protected def multiplicationMatrix(
+        lDf :DataFrame,
+        rDf :DataFrame,
+        colsName :(String, String, String) 
     ) :DataFrame = {
-       M1.join(
-            M2,
-            M1(columnName._2) ===  M2(columnName._4)
-        )
-        .groupBy(columnName._1, columnName._5)
+       lDf.as("l").join(
+            rDf.as("r"),
+            lDf(colsName._2) ===  rDf(colsName._1)
+        ).groupBy("l."+colsName._1, "r."+colsName._2)
         .agg(
             matrixMultiplyUdaf(
-                col(columnName._2),
-                col(columnName._3),
-                col(columnName._4),
-                col(columnName._6)
-            )
+                col("l."+colsName._2),
+                col("l."+colsName._3),
+                col("r."+colsName._1),
+                col("r."+colsName._3)
+            ).as(colsName._3)
         ) 
     }
     
-    protected def multiplicationMatrix(
-        M1 :DataFrame,
-        M2 :DataFrame,
-        columnName :(String, String, String, String, String, String)=("row_l", "col_l", "value_l", "row_r", "col_r", "value_r")
-    ) :DataFrame = {
-        multiplicationCorrectMatrix(
-            M1=correctedDF(M1, (columnName._1, columnName._2, columnName._3)),
-            M2=correctedDF(M2, (columnName._4, columnName._5, columnName._6)),
-            columnName=columnName
+}
+
+trait TransposeSparseMatrixDataframe {
+    
+    
+    // Transpose
+    protected def Transpose(df :DataFrame) :DataFrame = {
+        df.select(
+            col(df.columns(1)).as(df.columns(0)),
+            col(df.columns(0)).as(df.columns(1)),
+            col(df.columns(2))
         )
     }
     
-    protected def correctedDF(df :DataFrame, columnName :(String, String, String)) :DataFrame
 }
 
 trait SparseMatrixDataframeToMatrix {
 
     // To Matrix
-    def getBlockMatrix(df :DataFrame) = {
+    protected def getBlockMatrix(df :DataFrame) = {
         import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, MatrixEntry}
         
         new CoordinateMatrix(
@@ -86,7 +86,8 @@ trait SparseMatrixDataframeToMatrix {
 
 case class SparseMatrixDataframe(data: DataFrame) extends
     MultiplySparseMatrixDataframe with
-    SparseMatrixDataframeToMatrix
+    TransposeSparseMatrixDataframe with
+    SparseMatrixDataframeToMatrix 
     {
     
     // constants
@@ -96,28 +97,35 @@ case class SparseMatrixDataframe(data: DataFrame) extends
     
     //Multiply matrix
     def *(that: SparseMatrixDataframe) :SparseMatrixDataframe = SparseMatrixDataframe(
-        multiplicationMatrix(this.df, that.df)
+        multiplicationMatrix(
+            lDf=this.df,
+            rDf=that.df,
+            colsName=colsName
+        )
     )
     
+    //Transpose
+    def T = SparseMatrixDataframe(Transpose(this.df))
+    
     //to Matrix
-    def toBlockMatrix = getBlockMatrix(df)
+    def toBlockMatrix = getBlockMatrix(this.df)
     def toLocalMatrix = this.toBlockMatrix.toLocalMatrix
     
     //show
-    def show = df.show
+    def show = this.df.show
     
     // init
-    protected override def correctedDF(df :DataFrame, columnName :(String, String, String)) :DataFrame = {
+    protected def correctedDF(df :DataFrame, columnsName :(String, String, String)) :DataFrame = {
         df.select(df.columns.slice(0,3).zipWithIndex.map{ case (column, i) => {
                 i match {
-                    case 0  => col(column).cast("Long").as(columnName._1)
-                    case 1  => col(column).cast("Long").as(columnName._2)
-                    case 2  => col(column).cast("Double").as(columnName._3)
+                    case 0  => col(column).cast("Long").as(columnsName._1)
+                    case 1  => col(column).cast("Long").as(columnsName._2)
+                    case 2  => col(column).cast("Double").as(columnsName._3)
                     //case _  => col(column)
                 }
             }}:_*)
     }
     
-    val df = correctedDF(data, colsName)
+    val df = correctedDF(data, this.colsName)
     
 }
