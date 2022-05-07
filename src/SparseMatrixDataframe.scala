@@ -1,5 +1,7 @@
+import org.apache.spark.sql.{DataFrame}
+
 trait MultiplySparseMatrixDataframe {
-    
+
     import org.apache.spark.sql.expressions.Aggregator
     
     protected object MatrixMultiply extends Aggregator[(Long, Double, Long, Double), Double, Double] {
@@ -68,7 +70,7 @@ trait MultiplySparseMatrixDataframe {
 }
 
 trait SparseMatrixDataframeToMatrix {
-    
+
     // To Matrix
     def getBlockMatrix(df :DataFrame) = {
         import org.apache.spark.mllib.linalg.distributed.{CoordinateMatrix, MatrixEntry}
