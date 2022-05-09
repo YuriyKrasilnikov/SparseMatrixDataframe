@@ -122,9 +122,31 @@ case class SparseMatrixDataframe(data: DataFrame) extends
     private val valueName = "value"
     private val colsName = (rowName, colName, valueName)
     
+    //Matrix slice
+    def apply[A,B](rowLs: A, colLs: B)(implicit
+        evA: (::.type with Int with List[Int]) <:< A,
+        evB: (::.type with Int with List[Int]) <:< B
+    ):SparseMatrixDataframe = {
+            SparseMatrixDataframe(
+                this.filter(
+                    this.filter(this.df, rowLs, rowName),
+                    colLs,
+                    colName
+                )
+            )
+    }
+    
+    private def filter[A](data: DataFrame, rule:A, name:String): DataFrame = {
+        rule match {
+                case _: ::.type => data
+                case i: Int => data.filter(col(name) === i)
+                case lst: List[Int] => data.filter(col(name).isin(lst: _*))
+        }
+    }
+    
     //Matrix multiplication
     def *(that: SparseMatrixDataframe) :SparseMatrixDataframe = SparseMatrixDataframe(
-        multiplicationMatrix(
+        this.multiplicationMatrix(
             lDf=this.df,
             rDf=that.df,
             colsName=colsName
@@ -143,7 +165,7 @@ case class SparseMatrixDataframe(data: DataFrame) extends
     
     //Matrix addition
     def +(that: SparseMatrixDataframe) :SparseMatrixDataframe = SparseMatrixDataframe(
-        sumMatrix(
+        this.sumMatrix(
             lDf=this.df,
             rDf=that.df,
             colsName=colsName
@@ -151,10 +173,10 @@ case class SparseMatrixDataframe(data: DataFrame) extends
     )
     
     //Transpose
-    def T = SparseMatrixDataframe(transpose(this.df))
+    def T = SparseMatrixDataframe(this.transpose(this.df))
     
     //to Matrix
-    def toBlockMatrix = getBlockMatrix(this.df)
+    def toBlockMatrix = this.getBlockMatrix(this.df)
     def toLocalMatrix = this.toBlockMatrix.toLocalMatrix
     
     //show
