@@ -57,7 +57,6 @@ trait MultiplySparseMatrixDataframe{
 
 trait TransposeSparseMatrixDataframe {
     
-    
     // Transpose
     protected def Transpose(df :DataFrame) :DataFrame = {
         df.select(
@@ -103,6 +102,14 @@ case class SparseMatrixDataframe(data: DataFrame) extends
             colsName=colsName
         )
     )
+
+    def *[A](that: A) :SparseMatrixDataframe = SparseMatrixDataframe(
+        this.df.withColumn(valueName, col(valueName)*that)
+    )
+
+    def /[A](that: A) :SparseMatrixDataframe = SparseMatrixDataframe(
+        this.df.withColumn(valueName, col(valueName)/that)
+    )
     
     //Transpose
     def T = SparseMatrixDataframe(Transpose(this.df))
@@ -128,4 +135,10 @@ case class SparseMatrixDataframe(data: DataFrame) extends
     
     val df = correctedDF(data, this.colsName)
     
+}
+
+implicit class NumberToSparseMatrixDataframe[A](number: A) {
+    def *(that: SparseMatrixDataframe) :SparseMatrixDataframe = {
+        that * this.number
+    }
 }
