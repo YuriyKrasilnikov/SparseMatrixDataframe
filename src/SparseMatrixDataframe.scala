@@ -55,10 +55,34 @@ trait MultiplySparseMatrixDataframe{
     
 }
 
+trait SumSparseMatrixDataframe {
+    
+    // Sum
+    protected def sumMatrix(
+        lDf :DataFrame,
+        rDf :DataFrame,
+        colsName :(String, String, String) 
+    ) :DataFrame = {
+       lDf.as("l").join(
+            rDf.as("r"),
+            lDf(colsName._1) ===  rDf(colsName._1) && lDf(colsName._2) ===  rDf(colsName._2),
+            "Outer"
+        ).select(
+            when(col("l."+colsName._1).isNull, col("r."+colsName._1)).otherwise(col("l."+colsName._1)).as(colsName._1),
+            when(col("l."+colsName._2).isNull, col("r."+colsName._2)).otherwise(col("l."+colsName._2)).as(colsName._2),
+            (
+                when(col("l."+colsName._3).isNull, 0.0).otherwise(col("l."+colsName._3))+
+                    when(col("r."+colsName._3).isNull, 0.0).otherwise(col("r."+colsName._3))
+            ).as(colsName._3)
+        )
+    }
+    
+}
+
 trait TransposeSparseMatrixDataframe {
     
     // Transpose
-    protected def Transpose(df :DataFrame) :DataFrame = {
+    protected def transpose(df :DataFrame) :DataFrame = {
         df.select(
             col(df.columns(1)).as(df.columns(0)),
             col(df.columns(0)).as(df.columns(1)),
@@ -86,15 +110,19 @@ trait SparseMatrixDataframeToMatrix {
 case class SparseMatrixDataframe(data: DataFrame) extends
     MultiplySparseMatrixDataframe with
     TransposeSparseMatrixDataframe with
+    SumSparseMatrixDataframe with
     SparseMatrixDataframeToMatrix 
     {
     
     // constants
     // ---
     // columns name
-    private val colsName = ("row", "col", "value")
+    private val rowName = "row"
+    private val colName = "col"
+    private val valueName = "value"
+    private val colsName = (rowName, colName, valueName)
     
-    //Multiply matrix
+    //Matrix multiplication
     def *(that: SparseMatrixDataframe) :SparseMatrixDataframe = SparseMatrixDataframe(
         multiplicationMatrix(
             lDf=this.df,
@@ -102,17 +130,28 @@ case class SparseMatrixDataframe(data: DataFrame) extends
             colsName=colsName
         )
     )
-
+    
+    //Multiplying matrix by a number
     def *[A](that: A) :SparseMatrixDataframe = SparseMatrixDataframe(
         this.df.withColumn(valueName, col(valueName)*that)
     )
-
+    
+    //Dividing matrix by a number
     def /[A](that: A) :SparseMatrixDataframe = SparseMatrixDataframe(
         this.df.withColumn(valueName, col(valueName)/that)
     )
     
+    //Matrix addition
+    def +(that: SparseMatrixDataframe) :SparseMatrixDataframe = SparseMatrixDataframe(
+        sumMatrix(
+            lDf=this.df,
+            rDf=that.df,
+            colsName=colsName
+        )
+    )
+    
     //Transpose
-    def T = SparseMatrixDataframe(Transpose(this.df))
+    def T = SparseMatrixDataframe(transpose(this.df))
     
     //to Matrix
     def toBlockMatrix = getBlockMatrix(this.df)
