@@ -52,7 +52,7 @@ trait MultiplySparseMatrixDataframe{
             ).as(colsName._3)
         ) 
     }
-    
+
 }
 
 trait SumSparseMatrixDataframe {
@@ -107,7 +107,7 @@ trait SparseMatrixDataframeToMatrix {
     
 }
 
-case class SparseMatrixDataframe(data: DataFrame) extends
+case class SparseMatrixDataframe(private var _df: DataFrame) extends
     MultiplySparseMatrixDataframe with
     TransposeSparseMatrixDataframe with
     SumSparseMatrixDataframe with
@@ -122,26 +122,52 @@ case class SparseMatrixDataframe(data: DataFrame) extends
     private val valueName = "value"
     private val colsName = (rowName, colName, valueName)
     
-    //Matrix slice
+    
+    //Get matrix slice
     def apply[A,B](rowLs: A, colLs: B)(implicit
         evA: (::.type with Int with List[Int]) <:< A,
         evB: (::.type with Int with List[Int]) <:< B
     ):SparseMatrixDataframe = {
             SparseMatrixDataframe(
-                this.filter(
-                    this.filter(this.df, rowLs, rowName),
+                matrixFilter(
+                    matrixFilter(this.df, rowLs, rowName),
                     colLs,
                     colName
                 )
             )
     }
     
-    private def filter[A](data: DataFrame, rule:A, name:String): DataFrame = {
+    private def matrixFilter[A](df: DataFrame, rule:A, name:String) :DataFrame = {
         rule match {
-                case _: ::.type => data
-                case i: Int => data.filter(col(name) === i)
-                case lst: List[Int] => data.filter(col(name).isin(lst: _*))
+                case _: ::.type => df
+                case i: Int => matrixFilter(df, List(i), name)
+                case lst: List[Int] => matrixFilter(df, lst, name)
         }
+    }
+    
+    private def matrixFilter(df: DataFrame, rule: List[Int], name: String) :DataFrame = {
+        rule
+            .zipWithIndex
+            .foldLeft(
+                df.withColumn("modifiable", lit(null: String))
+            ){ case (acc, (el, idx)) =>{
+                acc.withColumn(
+                    "modifiable", when(col(name) === el, idx).otherwise(col("modifiable"))
+                )
+            }}.filter(col("modifiable").isNotNull)
+            .drop(name)
+            .withColumnRenamed("modifiable", name)
+            .select(
+                df.columns.map(col(_)): _*
+            )
+    }
+    
+    //Update matrix slice
+    def update[A,B](rowLs: A, colLs: B, that: SparseMatrixDataframe)(implicit
+        evA: (::.type with Int with List[Int]) <:< A,
+        evB: (::.type with Int with List[Int]) <:< B
+    ) :Unit = {
+        
     }
     
     //Matrix multiplication
@@ -194,8 +220,9 @@ case class SparseMatrixDataframe(data: DataFrame) extends
             }}:_*)
     }
     
-    val df = correctedDF(data, this.colsName)
+    def df: DataFrame = correctedDF(_df, this.colsName)
     
+    def df_= (newDf: DataFrame) :Unit = _df = newDf
 }
 
 implicit class NumberToSparseMatrixDataframe[A](number: A) {
